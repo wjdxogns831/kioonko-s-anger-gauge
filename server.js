@@ -115,6 +115,19 @@ function imageFile(lv) {
   return path.join(PUBLIC_DIR, discordImage(lv));
 }
 
+// 디스코드가 예전 이미지를 기억하지 않도록, 파일 내용이 바뀌면 주소도 바뀌게 버전 표시를 붙임
+const versionCache = new Map();
+function imageVersion(file) {
+  if (!versionCache.has(file)) {
+    try {
+      versionCache.set(file, crypto.createHash('sha1').update(fs.readFileSync(path.join(PUBLIC_DIR, file))).digest('hex').slice(0, 8));
+    } catch {
+      versionCache.set(file, '0');
+    }
+  }
+  return versionCache.get(file);
+}
+
 function titleFor(value) {
   if (value > 100) return '💀 신채호 분노 게이지: ??? / 100 💀';
   if (value === 100) return '‼️ 폭발 ‼️ 신채호 분노 게이지: 100 / 100';
@@ -209,7 +222,10 @@ async function handleInteraction(interaction, baseUrl) {
   if (interaction.type === 2 && interaction.data?.name === '분노') {
     const userId = interaction.member?.user?.id || interaction.user?.id;
     const opt = interaction.data.options?.find((o) => o.name === '값');
-    const imgUrl = (v) => `${baseUrl}/${discordImage(getLevel(v))}`;
+    const imgUrl = (v) => {
+      const file = discordImage(getLevel(v));
+      return `${baseUrl}/${file}?v=${imageVersion(file)}`;
+    };
 
     if (!opt) {
       return { type: 4, data: { embeds: [embedFor(state.value, imgUrl(state.value))] } };
