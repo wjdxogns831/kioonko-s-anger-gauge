@@ -155,9 +155,9 @@
   <script src="/levels.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
-    const { getLevel, displayValue, LEVELS, HIDDEN, SIXTY_SEVEN } = window.AngerLevels;
+    const { getLevel, displayValue, LEVELS, HIDDEN } = window.AngerLevels;
     // 사진 미리 불러오기
-    [...LEVELS, HIDDEN, SIXTY_SEVEN].forEach((l) => { const i = new Image(); i.src = '/' + l.img; });
+    [...LEVELS, HIDDEN].forEach((l) => { const i = new Image(); i.src = '/' + l.img; });
     let current = null;
     let password = null;
     try { password = sessionStorage.getItem('gauge-pw'); } catch {}

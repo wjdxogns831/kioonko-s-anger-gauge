@@ -15,13 +15,10 @@
 
   // 히든: 100을 넘기면
   const HIDDEN = { key: 'hidden', img: 'img/angry-7.png', color: '#8b5a3c', caption: '...' };
-  // 특별: 정확히 67일 때만
-  const SIXTY_SEVEN = { key: '67', img: 'img/10th-life.png', color: '#ff0000', caption: '씩~스 쎄븐~~~' };
 
   function getLevel(value) {
     const v = Number(value) || 0;
     if (v > 100) return HIDDEN;
-    if (v === 67) return SIXTY_SEVEN;
     const i = LEVELS.findIndex((l) => v <= l.max);
     const idx = i === -1 ? LEVELS.length - 1 : i;
     return { key: String(idx + 1), ...LEVELS[idx] };
@@ -32,7 +29,7 @@
     return Number(value) > 100 ? '???' : String(value);
   }
 
-  const api = { LEVELS, HIDDEN, SIXTY_SEVEN, OVERFLOW, getLevel, displayValue };
+  const api = { LEVELS, HIDDEN, OVERFLOW, getLevel, displayValue };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AngerLevels = api;
 })(typeof window !== 'undefined' ? window : globalThis);
