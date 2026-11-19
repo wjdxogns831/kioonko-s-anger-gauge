@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>신채호 분노 게이지</title>
   <meta name="description" content="신채호의 현재 분노 수치를 실시간으로 확인하세요">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌋</text></svg>">
+  <link rel="icon" id="favicon" href="/img/angry-1.png">
   <style>
     :root {
       --bg: #0f1115;
@@ -33,15 +33,15 @@
     .gauge { width: 100%; max-width: 380px; margin: 0 auto; }
     .gauge svg { width: 100%; display: block; overflow: visible; }
     #arc { transition: stroke-dashoffset .9s cubic-bezier(.2,.9,.3,1.2), stroke .6s; }
-    #needle { transform-origin: 150px 150px; transition: transform .9s cubic-bezier(.2,.9,.3,1.2); }
+    #face { image-rendering: pixelated; transform-origin: 150px 98px; cursor: default; transition: transform .12s; -webkit-user-select: none; user-select: none; }
+    #face.tap { transform: scale(1.08); }
     .num {
       margin-top: -6px; font-size: clamp(48px, 14vw, 72px); font-weight: 800;
       line-height: 1; color: var(--accent); transition: color .6s; font-variant-numeric: tabular-nums;
     }
     .num small { font-size: .3em; color: var(--muted); font-weight: 600; }
-    .level { margin-top: 18px; font-size: 18px; font-weight: 700; }
-    .level .emoji { font-size: 40px; display: block; margin-bottom: 6px; }
-    .caption { margin: 6px 0 0; font-size: 17px; color: var(--text); min-height: 1.4em; }
+    .level { margin-top: 16px; }
+    .caption { margin: 0; font-size: 18px; font-weight: 700; color: var(--text); min-height: 1.4em; line-height: 1.5; word-break: keep-all; }
     .meta { margin-top: 18px; color: var(--muted); font-size: 12px; }
     .live { display: inline-flex; align-items: center; gap: 6px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
@@ -49,17 +49,21 @@
     @keyframes pulse { 70% { box-shadow: 0 0 0 8px #22c55e00; } 100% { box-shadow: 0 0 0 0 #22c55e00; } }
 
     body.boom .card { animation: shake .35s infinite; }
-    body.boom .level .emoji { animation: bounce .6s infinite alternate; }
+    body.boom .caption { animation: bounce .6s infinite alternate; }
+    body.void { --bg: #0a0402; --card: #160904; background-image: none; }
+    body.void .card { animation: shake 1.4s infinite; box-shadow: 0 0 0 1px #ffffff10, 0 0 80px -10px #000; }
+    body.void h1, body.void .sub { opacity: .25; }
+    body.void .num small { display: none; }
     @keyframes shake {
       0%,100% { transform: translate(0,0) rotate(0); }
       25% { transform: translate(-3px,2px) rotate(-.6deg); }
       50% { transform: translate(3px,-2px) rotate(.6deg); }
       75% { transform: translate(-2px,-1px) rotate(-.3deg); }
     }
-    @keyframes bounce { from { transform: scale(1); } to { transform: scale(1.25); } }
+    @keyframes bounce { from { transform: scale(1); } to { transform: scale(1.06); } }
     @media (prefers-reduced-motion: reduce) {
-      body.boom .card, body.boom .level .emoji { animation: none; }
-      #arc, #needle { transition: none; }
+      body.boom .card, body.boom .caption, body.void .card { animation: none; }
+      #arc, #face { transition: none; }
     }
 
     .admin-toggle {
@@ -101,17 +105,13 @@
         <path d="M 30 150 A 120 120 0 0 1 270 150" fill="none" stroke="var(--track)" stroke-width="22" stroke-linecap="round"/>
         <path id="arc" d="M 30 150 A 120 120 0 0 1 270 150" fill="none" stroke="var(--accent)" stroke-width="22" stroke-linecap="round"
               pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
-        <g id="needle">
-          <line x1="150" y1="150" x2="150" y2="52" stroke="var(--text)" stroke-width="4" stroke-linecap="round"/>
-          <circle cx="150" cy="150" r="9" fill="var(--text)"/>
-        </g>
+        <defs><clipPath id="faceClip"><circle cx="150" cy="98" r="52"/></clipPath></defs>
+        <image id="face" href="/img/angry-1.png" x="98" y="46" width="104" height="104" clip-path="url(#faceClip)"/>
       </svg>
     </div>
     <div class="num"><span id="num">0</span><small> / 100</small></div>
 
     <div class="level" role="status" aria-live="polite">
-      <span class="emoji" id="emoji">🍵</span>
-      <span id="levelName">평온</span>
       <p class="caption" id="caption">불러오는 중...</p>
     </div>
 
@@ -131,7 +131,7 @@
         <p class="hint">비밀번호는 이 브라우저 탭을 닫으면 잊어버려요.</p>
       </div>
       <div id="controlBox" hidden>
-        <div class="slider-val"><span id="sliderVal">0</span> <small style="font-size:14px;color:var(--muted)" id="sliderCaption"></small></div>
+        <div class="slider-val"><span id="sliderVal">0</span> <img id="sliderImg" alt="" width="36" height="36" style="vertical-align:middle;image-rendering:pixelated;border-radius:6px"></div>
         <input type="range" id="slider" min="0" max="100" step="1" value="0" aria-label="분노 수치">
         <div class="presets" id="presets"></div>
         <div class="row">
@@ -145,7 +145,9 @@
   <script src="/levels.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
-    const { getLevel } = window.AngerLevels;
+    const { getLevel, displayValue, LEVELS, HIDDEN, SIXTY_SEVEN } = window.AngerLevels;
+    // 사진 미리 불러오기
+    [...LEVELS, HIDDEN, SIXTY_SEVEN].forEach((l) => { const i = new Image(); i.src = '/' + l.img; });
     let current = null;
     let password = null;
     try { password = sessionStorage.getItem('gauge-pw'); } catch {}
@@ -155,14 +157,14 @@
       const v = s.value;
       const lv = getLevel(v);
       document.documentElement.style.setProperty('--accent', lv.color);
-      $('arc').setAttribute('stroke-dashoffset', 100 - v);
-      $('needle').style.transform = `rotate(${(v / 100) * 180 - 90}deg)`;
-      $('num').textContent = v;
-      $('emoji').textContent = lv.emoji;
-      $('levelName').textContent = `[${lv.name}]`;
+      $('arc').setAttribute('stroke-dashoffset', 100 - Math.min(v, 100));
+      $('face').setAttribute('href', '/' + lv.img);
+      $('favicon').href = '/' + lv.img;
+      $('num').textContent = displayValue(v);
       $('caption').textContent = lv.caption;
-      document.body.classList.toggle('boom', v > 90);
-      document.title = `${lv.emoji} ${v} | 신채호 분노 게이지`;
+      document.body.classList.toggle('boom', v === 100);
+      document.body.classList.toggle('void', v > 100);
+      document.title = `${displayValue(v)} | 신채호 분노 게이지`;
       $('updated').textContent = s.updatedAt
         ? `${new Date(s.updatedAt).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} ${s.by === 'discord' ? '디스코드에서' : '웹에서'} 변경`
         : '아직 변경 기록 없음';
@@ -215,8 +217,7 @@
     function updateSlider(v) {
       $('slider').value = v;
       $('sliderVal').textContent = v;
-      const lv = getLevel(v);
-      $('sliderCaption').textContent = `${lv.emoji} ${lv.name}`;
+      $('sliderImg').src = '/' + getLevel(v).img;
     }
     $('slider').oninput = (e) => updateSlider(Number(e.target.value));
 
@@ -226,6 +227,19 @@
       b.textContent = v;
       b.onclick = () => updateSlider(v);
       $('presets').appendChild(b);
+    });
+
+    // 히든: 100인 상태에서 신채호 로그인 후 게이지 그림을 10번 연타하면 폭주
+    let taps = [];
+    $('face').addEventListener('click', async () => {
+      if (!password || !current || current.value !== 100) return;
+      $('face').classList.add('tap');
+      setTimeout(() => $('face').classList.remove('tap'), 120);
+      const now = Date.now();
+      taps = taps.filter((t) => now - t < 4000).concat(now);
+      if (taps.length < 10) return;
+      taps = [];
+      try { render(await post({ overflow: true })); } catch (err) { setMsg(err.message, true); }
     });
 
     $('saveBtn').onclick = async () => {

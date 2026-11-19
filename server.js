@@ -9,7 +9,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { getLevel } = require('./public/levels.js');
+const { getLevel, displayValue, OVERFLOW } = require('./public/levels.js');
 
 const PORT = Number(process.env.PORT) || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -100,28 +100,48 @@ async function setGauge(value, by) {
 }
 
 function bar(value) {
+  if (value > 100) return '⬛'.repeat(10) + '💥';
   const filled = Math.round(value / 10);
   return '🟥'.repeat(filled) + '⬜'.repeat(10 - filled);
+}
+
+function imageFile(lv) {
+  return path.join(PUBLIC_DIR, lv.img);
+}
+
+function embedFor(value, imageUrl, extra = {}) {
+  const lv = getLevel(value);
+  return {
+    title: `신채호 분노 게이지: ${displayValue(value)} / 100`,
+    description: `${bar(value)}\n${lv.caption}`,
+    color: parseInt(lv.color.slice(1), 16),
+    image: { url: imageUrl },
+    ...extra,
+  };
 }
 
 function announce(prev, value, by) {
   if (!DISCORD_WEBHOOK_URL) return;
   const lv = getLevel(value);
   const arrow = value > prev ? '📈' : value < prev ? '📉' : '➡️';
-  const embed = {
-    title: `${lv.emoji} 신채호 분노 게이지: ${value} / 100`,
-    description: `${bar(value)}\n**[${lv.name}]** ${lv.caption}\n\n${arrow} ${prev} → ${value}`,
-    color: parseInt(lv.color.slice(1), 16),
-    footer: { text: by === 'discord' ? '디스코드에서 변경' : '웹에서 변경' },
+  const fileName = path.basename(lv.img);
+  const embed = embedFor(value, `attachment://${fileName}`, {
+    footer: { text: `${by === 'discord' ? '디스코드에서 변경' : '웹에서 변경'} · ${displayValue(prev)} → ${displayValue(value)}` },
     timestamp: state.updatedAt,
-  };
+  });
+  embed.description = `${arrow} ${embed.description}`;
   if (PUBLIC_URL) embed.url = PUBLIC_URL;
-  fetch(DISCORD_WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: '분노 게이지', embeds: [embed] }),
-  })
-    .then((r) => { if (!r.ok) console.error('[웹훅] 실패:', r.status); })
+
+  // 사진을 첨부파일로 같이 보냄 (PUBLIC_URL 없이도 사진이 보이도록)
+  const form = new FormData();
+  form.append('payload_json', JSON.stringify({ username: '신채호 분노 게이지', embeds: [embed], attachments: [{ id: 0, filename: fileName }] }));
+  try {
+    form.append('files[0]', new Blob([fs.readFileSync(imageFile(lv))], { type: 'image/png' }), fileName);
+  } catch (err) {
+    console.error('[웹훅] 사진 읽기 실패:', err.message);
+  }
+  fetch(DISCORD_WEBHOOK_URL, { method: 'POST', body: form })
+    .then(async (r) => { if (!r.ok) console.error('[웹훅] 실패:', r.status, await r.text()); })
     .catch((err) => console.error('[웹훅] 실패:', err.message));
 }
 
@@ -171,26 +191,26 @@ function verifyDiscord(rawBody, signature, timestamp) {
   }
 }
 
-async function handleInteraction(interaction) {
+async function handleInteraction(interaction, baseUrl) {
   if (interaction.type === 1) return { type: 1 }; // PING
 
   if (interaction.type === 2 && interaction.data?.name === '분노') {
     const userId = interaction.member?.user?.id || interaction.user?.id;
     const opt = interaction.data.options?.find((o) => o.name === '값');
-    const lvNow = getLevel(state.value);
+    const imgUrl = (v) => `${baseUrl}/${getLevel(v).img}`;
 
     if (!opt) {
-      return reply(`${lvNow.emoji} 현재 신채호 분노 게이지: **${state.value} / 100**\n${bar(state.value)}\n**[${lvNow.name}]** ${lvNow.caption}`);
+      return { type: 4, data: { embeds: [embedFor(state.value, imgUrl(state.value))] } };
     }
     if (!DISCORD_OWNER_ID || userId !== DISCORD_OWNER_ID) {
       return reply('🚫 이 게이지는 신채호만 바꿀 수 있어요. 남의 분노를 대신 조절하지 마세요!', true);
     }
     const value = parseValue(opt.value);
     if (value === null) return reply('0부터 100 사이 정수로 입력해 주세요.', true);
-    await setGauge(value, 'discord');
-    const lv = getLevel(value);
+    const { value: newValue } = await setGauge(value === 100 && state.value >= 100 ? OVERFLOW : value, 'discord');
     // 채널 알림은 웹훅이 따로 보내므로, 웹훅이 있으면 명령 응답은 본인에게만 보이게 함
-    return reply(`${lv.emoji} 분노 게이지를 **${value}** 로 바꿨어요. ${lv.caption}`, Boolean(DISCORD_WEBHOOK_URL));
+    const content = newValue > 100 ? '💥 게이지가 100을 넘어버렸습니다...' : `분노 게이지를 **${newValue}** 로 바꿨어요.`;
+    return { type: 4, data: { content, embeds: [embedFor(newValue, imgUrl(newValue))], flags: DISCORD_WEBHOOK_URL ? 64 : 0 } };
   }
 
   return reply('알 수 없는 명령이에요.', true);
@@ -250,6 +270,11 @@ const server = http.createServer(async (req, res) => {
       try { body = JSON.parse((await readBody(req)).toString('utf8')); } catch { return sendJson(res, 400, { error: '잘못된 요청' }); }
       if (!passwordOk(body.password)) { recordFailure(ip); return sendJson(res, 401, { error: '비밀번호가 틀렸어요.' }); }
       if (body.checkOnly) return sendJson(res, 200, { ok: true });
+      // 웹 히든: 100인 상태에서 게이지 그림 연타로 폭주
+      if (body.overflow) {
+        if (state.value < 100) return sendJson(res, 400, { error: '아직 100이 아니에요.' });
+        return sendJson(res, 200, await setGauge(OVERFLOW, 'web'));
+      }
       const value = parseValue(body.value);
       if (value === null) return sendJson(res, 400, { error: '0부터 100 사이 정수만 가능해요.' });
       return sendJson(res, 200, await setGauge(value, 'web'));
@@ -260,7 +285,9 @@ const server = http.createServer(async (req, res) => {
       if (!verifyDiscord(raw, req.headers['x-signature-ed25519'], req.headers['x-signature-timestamp'])) {
         res.writeHead(401); return res.end('invalid request signature');
       }
-      return sendJson(res, 200, await handleInteraction(JSON.parse(raw.toString('utf8'))));
+      const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+      const baseUrl = PUBLIC_URL ? PUBLIC_URL.replace(/\/$/, '') : `${proto}://${req.headers.host}`;
+      return sendJson(res, 200, await handleInteraction(JSON.parse(raw.toString('utf8')), baseUrl));
     }
 
     if (req.method === 'GET' || req.method === 'HEAD') {
