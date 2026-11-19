@@ -35,6 +35,16 @@
     #arc { transition: stroke-dashoffset .9s cubic-bezier(.2,.9,.3,1.2), stroke .6s; }
     #face { image-rendering: pixelated; transform-origin: 150px 98px; cursor: default; transition: transform .12s; -webkit-user-select: none; user-select: none; }
     #face.tap { transform: scale(1.08); }
+    #face.hidden-for-zoom { opacity: 0; }
+
+    /* 값이 바뀔 때 얼굴이 크게 떴다가 가운데 마크로 날아가는 연출 */
+    .zoom-backdrop { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 50; }
+    .zoom-face {
+      position: fixed; left: 50%; top: 50%; width: min(72vw, 62vh, 420px); aspect-ratio: 1; z-index: 51;
+      border-radius: 50%; image-rendering: pixelated; pointer-events: none;
+      box-shadow: 0 0 0 6px var(--accent), 0 30px 80px -10px #000;
+      transform: translate(-50%, -50%);
+    }
     .num {
       margin-top: -6px; font-size: clamp(48px, 14vw, 72px); font-weight: 800;
       line-height: 1; color: var(--accent); transition: color .6s; font-variant-numeric: tabular-nums;
@@ -152,7 +162,51 @@
     let password = null;
     try { password = sessionStorage.getItem('gauge-pw'); } catch {}
 
+    let zoomRun = null;
+    function playZoom(img) {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !document.body.animate) return;
+      if (zoomRun) zoomRun.finish();
+      const face = $('face');
+      const backdrop = document.createElement('div');
+      backdrop.className = 'zoom-backdrop';
+      const big = document.createElement('img');
+      big.className = 'zoom-face';
+      big.src = img;
+      big.alt = '';
+      document.body.append(backdrop, big);
+      face.classList.add('hidden-for-zoom');
+
+      // 도착 지점: 게이지 가운데 얼굴의 실제 위치와 크기
+      const from = big.getBoundingClientRect();
+      const to = face.getBoundingClientRect();
+      const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+      const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+      const scale = to.width / from.width;
+      const base = 'translate(-50%, -50%)';
+
+      const total = 1900;
+      const a1 = backdrop.animate(
+        [{ opacity: 0 }, { opacity: 0.55, offset: 0.12 }, { opacity: 0.55, offset: 0.5 }, { opacity: 0 }],
+        { duration: total, easing: 'linear', fill: 'forwards' });
+      const a2 = big.animate([
+        { transform: `${base} scale(0.2)`, opacity: 0 },
+        { transform: `${base} scale(1.12)`, opacity: 1, offset: 0.14 },
+        { transform: `${base} scale(1)`, opacity: 1, offset: 0.22 },
+        { transform: `${base} scale(1)`, opacity: 1, offset: 0.5, easing: 'cubic-bezier(.5,0,.2,1)' },
+        { transform: `${base} translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 1 },
+      ], { duration: total, fill: 'forwards' });
+
+      const done = () => {
+        backdrop.remove(); big.remove(); face.classList.remove('hidden-for-zoom');
+        if (zoomRun === run) zoomRun = null;
+      };
+      const run = { finish: () => { a1.cancel(); a2.cancel(); done(); } };
+      zoomRun = run;
+      a2.onfinish = done;
+    }
+
     function render(s) {
+      const changed = current && current.value !== s.value;
       current = s;
       const v = s.value;
       const lv = getLevel(v);
@@ -165,6 +219,7 @@
       document.body.classList.toggle('boom', v === 100);
       document.body.classList.toggle('void', v > 100);
       document.title = `${displayValue(v)} | 신채호 분노 게이지`;
+      if (changed) playZoom('/' + lv.img);
       $('updated').textContent = s.updatedAt
         ? `${new Date(s.updatedAt).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} ${s.by === 'discord' ? '디스코드에서' : '웹에서'} 변경`
         : '아직 변경 기록 없음';
