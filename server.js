@@ -105,14 +105,26 @@ function bar(value) {
   return '🟥'.repeat(filled) + '⬜'.repeat(10 - filled);
 }
 
+// 디스코드에는 움직이는 GIF를 보냄 (public/gif/), 없으면 PNG
+function discordImage(lv) {
+  const gif = lv.img.replace(/^img\//, 'gif/').replace(/\.png$/, '.gif');
+  return fs.existsSync(path.join(PUBLIC_DIR, gif)) ? gif : lv.img;
+}
+
 function imageFile(lv) {
-  return path.join(PUBLIC_DIR, lv.img);
+  return path.join(PUBLIC_DIR, discordImage(lv));
+}
+
+function titleFor(value) {
+  if (value > 100) return '💀 신채호 분노 게이지: ??? / 100 💀';
+  if (value === 100) return '‼️ 폭발 ‼️ 신채호 분노 게이지: 100 / 100';
+  return `신채호 분노 게이지: ${displayValue(value)} / 100`;
 }
 
 function embedFor(value, imageUrl, extra = {}) {
   const lv = getLevel(value);
   return {
-    title: `신채호 분노 게이지: ${displayValue(value)} / 100`,
+    title: titleFor(value),
     description: `${bar(value)}\n${lv.caption}`,
     color: parseInt(lv.color.slice(1), 16),
     image: { url: imageUrl },
@@ -124,7 +136,7 @@ function announce(prev, value, by) {
   if (!DISCORD_WEBHOOK_URL) return;
   const lv = getLevel(value);
   const arrow = value > prev ? '📈' : value < prev ? '📉' : '➡️';
-  const fileName = path.basename(lv.img);
+  const fileName = path.basename(discordImage(lv));
   const embed = embedFor(value, `attachment://${fileName}`, {
     footer: { text: `${by === 'discord' ? '디스코드에서 변경' : '웹에서 변경'} · ${displayValue(prev)} → ${displayValue(value)}` },
     timestamp: state.updatedAt,
@@ -136,7 +148,7 @@ function announce(prev, value, by) {
   const form = new FormData();
   form.append('payload_json', JSON.stringify({ username: '신채호 분노 게이지', embeds: [embed], attachments: [{ id: 0, filename: fileName }] }));
   try {
-    form.append('files[0]', new Blob([fs.readFileSync(imageFile(lv))], { type: 'image/png' }), fileName);
+    form.append('files[0]', new Blob([fs.readFileSync(imageFile(lv))], { type: fileName.endsWith('.gif') ? 'image/gif' : 'image/png' }), fileName);
   } catch (err) {
     console.error('[웹훅] 사진 읽기 실패:', err.message);
   }
@@ -197,7 +209,7 @@ async function handleInteraction(interaction, baseUrl) {
   if (interaction.type === 2 && interaction.data?.name === '분노') {
     const userId = interaction.member?.user?.id || interaction.user?.id;
     const opt = interaction.data.options?.find((o) => o.name === '값');
-    const imgUrl = (v) => `${baseUrl}/${getLevel(v).img}`;
+    const imgUrl = (v) => `${baseUrl}/${discordImage(getLevel(v))}`;
 
     if (!opt) {
       return { type: 4, data: { embeds: [embedFor(state.value, imgUrl(state.value))] } };
@@ -222,7 +234,7 @@ function reply(content, ephemeral = false) {
 
 // ---------------------------------------------------------------- HTTP 서버
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.gif': 'image/gif', '.ico': 'image/x-icon' };
 
 function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
